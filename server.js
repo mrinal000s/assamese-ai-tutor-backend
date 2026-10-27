@@ -6,43 +6,49 @@ import { GoogleGenAI } from '@google/genai';
 dotenv.config();
 
 const app = express();
+const port = process.env.PORT || 10000;
+
 app.use(cors());
 app.use(express.json());
 
+// Initialize Google Gen AI
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+app.get('/', (req, res) => {
+    res.send("Assamese AI Tutor Backend is Live!");
+});
+
 app.post('/chat', async (req, res) => {
-    // Extract the new variables sent from index.html
-    const { message, grade, subject } = req.body;
-    
-    // Dynamically build the persona using the selected grade and subject
-    const tutorRules = `You are an expert AI tutor for Assamese medium students under the SEBA board. 
-    You are currently teaching Grade ${grade} ${subject}. 
-    Provide direct, comprehensive answers with step-by-step guidance in complete Assamese. 
-    Important technical terms must be provided in English inside parentheses. 
-    Keep the tone encouraging and strictly focused on the syllabus.`;
+    try {
+        const { message, grade, subject } = req.body;
+        console.log(`Received question: "${message}" for ${grade} - ${subject}`);
 
-    let attempts = 3;
+        const prompt = `You are a helpful and expert AI tutor for Assamese medium students (SEBA Board, Assam).
+Student Grade: ${grade || 'Grade 10'}
+Subject: ${subject || 'Science'}
+Student Question: ${message}
 
-    while (attempts > 0) {
-        try {
-            const response = await ai.models.generateContent({
-                model: 'gemini-3.8-flash',
-                contents: message,
-                config: { systemInstruction: tutorRules }
-            });
-            return res.json({ reply: response.text });
-        } catch (error) {
-            attempts--;
-            if (attempts === 0 || (!error.message.includes('503') && !error.message.includes('unavailable'))) {
-                return res.status(500).json({ error: error.message });
-            }
-            await new Promise(resolve => setTimeout(resolve, 3000));
-        }
+Instructions:
+1. Provide a direct, easy-to-understand, and encouraging explanation written primarily in natural Assamese.
+2. Put important scientific/technical terms in English inside parentheses right next to the Assamese term (e.g., সালোকসংশ্লেষণ (Photosynthesis)).
+3. Keep the response concise enough for high-school students.`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: prompt
+        });
+
+        // Safe extraction of text
+        const replyText = response.text || "উত্তৰ প্ৰস্তুত কৰিব পৰা নগ'ল। অনুগ্ৰহ কৰি পুনৰ চেষ্টা কৰক।";
+        console.log("Response generated successfully.");
+
+        res.json({ reply: replyText });
+    } catch (error) {
+        console.error("Backend Error:", error);
+        res.status(500).json({ error: error.message || "Internal server error" });
     }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
 });
