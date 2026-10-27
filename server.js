@@ -17,13 +17,14 @@ app.get('/', (req, res) => {
     res.send("Assamese AI Tutor Backend is Live!");
 });
 
-// Candidate models in order of priority
+// Currently supported active Gemini models
 const CANDIDATE_MODELS = [
     'gemini-3.8-flash',
-    'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash'
+    'gemini-3.8-flash-lite',
+    'gemini-3.8-pro'
 ];
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 app.post('/chat', async (req, res) => {
     const { message, grade, subject } = req.body;
@@ -40,34 +41,44 @@ Instructions:
 3. Keep the response well-structured and educational.`;
 
     let replyText = null;
-    let lastError = null;
 
-    // Iterate through available models until one succeeds
+    // Loop through active candidate models
     for (const modelName of CANDIDATE_MODELS) {
-        try {
-            console.log(`Attempting generation with model: ${modelName}...`);
-            const response = await ai.models.generateContent({
-                model: modelName,
-                contents: prompt
-            });
+        // Attempt up to 3 times per model if a 503 spike occurs
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                console.log(`Calling ${modelName} (Attempt ${attempt})...`);
+                const response = await ai.models.generateContent({
+                    model: modelName,
+                    contents: prompt
+                });
 
-            replyText = response.text || (response.candidates?.[0]?.content?.parts?.[0]?.text);
-            if (replyText) {
-                console.log(`Success using model: ${modelName}`);
-                break;
+                replyText = response.text || (response.candidates?.[0]?.content?.parts?.[0]?.text);
+                if (replyText) {
+                    console.log(`Successfully generated response using: ${modelName}`);
+                    break;
+                }
+            } catch (err) {
+                console.warn(`Error on ${modelName} (attempt ${attempt}): ${err.message}`);
+                
+                // If it's a 503 busy spike, wait and retry
+                if (err.message && err.message.includes('503') && attempt < 3) {
+                    const waitTime = attempt * 1200; // 1.2s, 2.4s
+                    console.log(`503 high demand detected. Retrying in ${waitTime}ms...`);
+                    await sleep(waitTime);
+                } else {
+                    // If it's a 404 or persistent error, skip immediately to the next model
+                    break;
+                }
             }
-        } catch (err) {
-            console.warn(`Model ${modelName} unavailable or failed: ${err.message}`);
-            lastError = err;
-            // Continue immediately to next candidate model
         }
+        if (replyText) break;
     }
 
     if (replyText) {
         return res.json({ reply: replyText });
     }
 
-    console.error("All fallback models failed:", lastError);
     return res.status(503).json({
         error: "শিক্ষক মহোদয় বৰ্তমান ব্যস্ত। অনুগ্ৰহ কৰি কিছু সময় পাছত পুনৰ চেষ্টা কৰক।"
     });
